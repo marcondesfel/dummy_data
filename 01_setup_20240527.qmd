@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Dummy Data"
 format: html
 editor: visual
 editor_options: 
@@ -9,6 +9,10 @@ editor_options:
 ## Loading packages
 
 ```{r}
+#| eval: true
+#| echo: false 
+#| include: false
+
 # Loading packages 
 library(gtsummary)
 library(gmodels)
@@ -53,23 +57,30 @@ library(ggsurvey)
 ```
 
 ```{r}
+#| eval: true
+#| echo: false 
+#| include: false
+
 # load CVS file 
 
 
-# ACP regression output 
-claims <- readr::read_csv("data/01_raw/claims_line_file.csv") %>%
+ 
+claims <- readr::read_csv("C:/Users/felip/Dropbox (Partners HealthCare)/R Projects/dummy_project/data/01_raw/claims_line_file.csv") %>%
   as_tibble()
 
-people <- readr::read_csv("data/01_raw/patient_level_file.csv") %>%
+people <- readr::read_csv("C:/Users/felip/Dropbox (Partners HealthCare)/R Projects/dummy_project/data/01_raw/patient_level_file.csv") %>%
   as_tibble()
 
 
 
 ```
 
-
 #Rolling up claims line file to one row person (similar to SUM statement in proc sql in SAS)
+
 ```{r}
+#| eval: true
+#| echo: false 
+
 a1 <- claims %>%
   group_by(bene_id) %>%
   summarise(rpm = sum(rpm), 
@@ -79,7 +90,11 @@ a1 <- claims %>%
 ```
 
 #Rolling up claims line file to one row person (similar to MAX statement in proc sql in SAS)
+
 ```{r}
+#| eval: true
+#| echo: false 
+
 a2 <- claims %>%
   group_by(bene_id) %>%
   summarise(rpm = max(rpm), 
@@ -87,9 +102,11 @@ a2 <- claims %>%
   ungroup()
 ```
 
-
 #Rolling up claims line file to one row person (similar to sum(diab_type_2_ind=1 and cgm=1) as cgm_diab_ct statement in proc sql in SAS)
+
 ```{r}
+#| eval: true
+#| echo: false 
 
 a3 <- claims %>%
   group_by(bene_id) %>%
@@ -99,8 +116,12 @@ a3 <- claims %>%
 
 ```
 
-#Creating indicator variable for cgm_diab_ct > 0 (similar to (case when cgm_diab_ct gt 0 then 1 else 0 end) as cgm_diab_any) in SAS proc sql
+#Creating indicator variable for cgm_diab_ct \> 0 (similar to (case when cgm_diab_ct gt 0 then 1 else 0 end) as cgm_diab_any) in SAS proc sql
+
 ```{r}
+#| eval: true
+#| echo: false 
+
 a4 <- a3 %>%
   group_by(bene_id) %>%
   mutate(cgm_diab_any = case_when(
@@ -113,23 +134,33 @@ a4 <- a3 %>%
 ```
 
 #Joining datasets a4 and people by bene_id (similar to proc sql's from a4 as a left join people as b in proc sql in SAS )
+
 ```{r}
+#| eval: true
+#| echo: false 
 
 a5 <- left_join(a4, people, by = "bene_id") %>%
   arrange(bene_id)
 
 ```
 
-
 #Joining datasets a4 and people by bene_id (similar to proc sql's from a4 as a left join people as b in proc sql in SAS ) BUT just bringing in one column from a4
+
 ```{r}
+#| eval: true
+#| echo: false 
+
 a6 <- left_join(a4 %>% select(bene_id, cgm_diab_any), people, by = "bene_id") %>%
   arrange(bene_id)
 ```
 
+#Iterate over multiple variables
 
-#Iterate over multiple variables 
 ```{r}
+#| eval: true
+#| echo: false 
+#| label: tab-dummy-demo
+#| tab-cap: "Table of demographic characteristics by gender"
 
 create_frequency_tables <- function(data, variables) {
   tables <- list()
@@ -188,9 +219,11 @@ flat_frequency_table <- bind_rows(frequency_tables, .id = "variable")
 
 ```
 
-
-
 ```{r}
+#| eval: true
+#| echo: false 
+
+
 # Custom function to perform linear regression for multiple outcome variables and covariates
 perform_regression <- function(outcome_vars, covariates, data) {
   results <- list()
@@ -241,11 +274,13 @@ reg_res <- regression_results %>%
 
 ```
 
-
-
-
 #Plotting estimates and 95% CIs
+
 ```{r}
+#| eval: true
+#| echo: false 
+#| label: fig-dummy-models
+#| fig-cap: "Regression models"
 
 # Calculate mean of each outcome variable
 mean_outcome <- sapply(outcome_vars, function(outcome_var) {
@@ -271,10 +306,10 @@ reg_res <- reg_res %>%
 
 # Plot using ggplot2
 plot <- ggplot(reg_res, aes(x = factor(model, labels = c("m1", "m2", "m3")), y = pct_change)) +
-  geom_point(aes(colour = factor(outcome_name, labels = c(outcome_vars))), size = 3, position=position_dodge(width = 1)) +
+  geom_point(aes(colour = factor(outcome_name)), size = 3, position=position_dodge(width = 1)) +
   geom_errorbar(aes(ymin = low_ci, ymax = high_ci), position=position_dodge(width = 1), width=.33) +
  geom_text(aes(label = format(round(pct_change * 100, 1), nsmall = 1)), position=position_dodge(width = 1), vjust = -1, size = 4) +
-  facet_wrap(~factor(outcome_name, labels = c('cgm any', 'rpm any')), nrow = 1) +
+  facet_wrap(~factor(outcome_name), nrow = 1) +
   geom_hline(yintercept = 0, color = "dark gray", linetype = "dashed") +
   theme_bw() +
   scale_y_continuous(labels = scales::percent) + 
@@ -285,10 +320,6 @@ plot <- ggplot(reg_res, aes(x = factor(model, labels = c("m1", "m2", "m3")), y =
         legend.text = element_text(size = 11)) + 
   labs(y = "Relative change (% of baseline)", 
        x = "", 
-       colour = "outcome_vars")
+       colour = "outcome_name")
 print(plot)
 ```
-
-
-
-
