@@ -1,0 +1,294 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Loading packages
+
+```{r}
+# Loading packages 
+library(gtsummary)
+library(gmodels)
+library(summarytools)
+library(haven)
+library(survey)
+library(devtools)
+library(readstata13)
+library(freqtables)
+library(srvyr)
+library(jtools)
+library(marginaleffects)
+library(flextable)
+library(sjstats)
+library(MASS)
+library(interactions)
+library(SmartEDA)
+library(DataExplorer)
+library(rddensity)
+library(rdd)
+library(rdrobust)
+library(modelsummary)
+library(tibble)
+library(fixest)
+library(here)
+library(estimatr)
+library(sandwich)
+library(lmtest)
+library(janitor)
+library(broom)
+library(aplot)
+library(fastDummies)
+library(glue)
+library(rdrobust)
+library(RDHonest)
+library(splines)
+library(stats)
+library(arrow)
+library(tidyverse)
+library(ggsurvey)
+
+```
+
+```{r}
+# load CVS file 
+
+
+# ACP regression output 
+claims <- readr::read_csv("data/01_raw/claims_line_file.csv") %>%
+  as_tibble()
+
+people <- readr::read_csv("data/01_raw/patient_level_file.csv") %>%
+  as_tibble()
+
+
+
+```
+
+
+#Rolling up claims line file to one row person (similar to SUM statement in proc sql in SAS)
+```{r}
+a1 <- claims %>%
+  group_by(bene_id) %>%
+  summarise(rpm = sum(rpm), 
+            cgm = sum(cgm)) %>%
+  ungroup()
+
+```
+
+#Rolling up claims line file to one row person (similar to MAX statement in proc sql in SAS)
+```{r}
+a2 <- claims %>%
+  group_by(bene_id) %>%
+  summarise(rpm = max(rpm), 
+            cgm = max(cgm)) %>%
+  ungroup()
+```
+
+
+#Rolling up claims line file to one row person (similar to sum(diab_type_2_ind=1 and cgm=1) as cgm_diab_ct statement in proc sql in SAS)
+```{r}
+
+a3 <- claims %>%
+  group_by(bene_id) %>%
+  summarise(cgm_diab_ct = sum(diab_type_2_ind == 1 & cgm == 1), 
+            rpm_ct = sum(rpm)) %>%
+  ungroup()
+
+```
+
+#Creating indicator variable for cgm_diab_ct > 0 (similar to (case when cgm_diab_ct gt 0 then 1 else 0 end) as cgm_diab_any) in SAS proc sql
+```{r}
+a4 <- a3 %>%
+  group_by(bene_id) %>%
+  mutate(cgm_diab_any = case_when(
+    cgm_diab_ct > 0 ~ 1,
+    TRUE ~ 0), 
+    rpm_any = case_when(
+      rpm_ct > 0 ~ 1, 
+      TRUE ~ 0)) %>%
+  ungroup()
+```
+
+#Joining datasets a4 and people by bene_id (similar to proc sql's from a4 as a left join people as b in proc sql in SAS )
+```{r}
+
+a5 <- left_join(a4, people, by = "bene_id") %>%
+  arrange(bene_id)
+
+```
+
+
+#Joining datasets a4 and people by bene_id (similar to proc sql's from a4 as a left join people as b in proc sql in SAS ) BUT just bringing in one column from a4
+```{r}
+a6 <- left_join(a4 %>% select(bene_id, cgm_diab_any), people, by = "bene_id") %>%
+  arrange(bene_id)
+```
+
+
+#Iterate over multiple variables 
+```{r}
+
+create_frequency_tables <- function(data, variables) {
+  tables <- list()
+  for (variable in variables) {
+    variable_name <- as.character(variable)
+    
+    # Ensure that all combinations of variable and gender are included
+    all_combinations <- expand.grid(
+      variable = unique(data[[variable_name]]), 
+      gender = unique(data$gender)
+    )
+    names(all_combinations)[1] <- variable_name  # Rename the column to match the variable name
+    
+    # Correctly join and count combinations
+    table <- data %>%
+      count(!!sym(variable_name), gender, .drop = FALSE) %>%
+      full_join(all_combinations, by = c(variable_name, "gender")) %>%
+      replace_na(list(n = 0)) %>%
+      group_by(!!sym(variable_name)) %>%
+      mutate(percent = n / sum(n) * 100) %>%
+      ungroup() %>%
+      arrange(!!sym(variable_name), gender)
+    
+    # Add the table to the list
+    tables[[variable_name]] <- table
+  }
+  return(tables)
+}
+
+
+# # test coding by hand
+# create_frequency_tables <- function(data, variables) {
+# tables <- list()
+# for (variable in variables) {
+# table <- data %>%
+#       count({{variable}}, gender, .drop = FALSE) %>%
+#       group_by({{variable}}) %>%
+#       mutate(percent = n / sum(n) * 100) %>%
+#       ungroup() 
+# 
+#   # Add the table to the list
+#     tables[[as.character(variable)]] <- table
+# } 
+# return(tables)
+# }
+
+
+# Vector of variables to create frequency tables for
+variables <- c("rpm_any", "cgm_diab_any")
+
+# Create frequency tables for the variables
+frequency_tables <- create_frequency_tables(a5, variables)
+
+# Flatten the list of frequency tables into a single tibble
+flat_frequency_table <- bind_rows(frequency_tables, .id = "variable")
+
+```
+
+
+
+```{r}
+# Custom function to perform linear regression for multiple outcome variables and covariates
+perform_regression <- function(outcome_vars, covariates, data) {
+  results <- list()
+  
+  for (outcome_var in outcome_vars) {
+    for (i in seq_along(covariates)) {
+      
+      covariate_set <- unlist(covariates[1:i])
+      
+      formula <- as.formula(paste(outcome_var, "~", paste(covariate_set, collapse = "+")))
+      model <- lm(formula, data = data)
+      
+      result_name <- paste(outcome_var, "_vs_", paste(covariate_set, collapse = "_and_"), sep = "")
+      
+      
+      result <- broom::tidy(model)
+      result$outcome_name <- outcome_var
+      
+      results[[result_name]] <- result
+    }
+  }
+  final_results <- bind_rows(results, .id = "model")
+  
+  for (outcome_var in outcome_vars) {
+    final_results$model <- gsub(paste0("^", outcome_var, "_vs_"), "y_vs_", final_results$model)
+  }
+  return(final_results)
+}
+
+# vector of age and sex
+age_sex <- c("age", "gender")
+
+# Vector of outcome variables
+outcome_vars <- c("rpm_any", "cgm_diab_any")
+
+# Vector of covariates
+covariates <- list("dual_eligible", "number_comorbidities", age_sex)
+
+# Perform regression for the variables and flatten results 
+regression_results <- perform_regression(outcome_vars, covariates, a5)
+
+
+# filter only needed coeffs
+
+reg_res <- regression_results %>%
+  filter(term == "dual_eligible")
+
+
+```
+
+
+
+
+#Plotting estimates and 95% CIs
+```{r}
+
+# Calculate mean of each outcome variable
+mean_outcome <- sapply(outcome_vars, function(outcome_var) {
+  a5 %>%
+    summarize(mean = mean(!!sym(outcome_var), na.rm = TRUE))
+}) %>%
+  enframe(name = "outcome_name", value = "mean_value") %>%
+  mutate(outcome_name = str_remove(outcome_name, "\\.mean$"), mean_value = as.numeric(mean_value))
+
+# Merge mean outcome data into regression_results
+reg_res <- reg_res %>%
+  left_join(mean_outcome, by = "outcome_name")
+
+# Calculate % change from baseline
+
+reg_res <- reg_res %>% 
+  mutate(baseline = case_when(TRUE ~ mean_value),
+         pct_change = estimate / baseline, 
+         low_ci = (estimate - 1.96 * std.error) / baseline,
+         high_ci = (estimate + 1.96 * std.error) / baseline)
+
+
+
+# Plot using ggplot2
+plot <- ggplot(reg_res, aes(x = factor(model, labels = c("m1", "m2", "m3")), y = pct_change)) +
+  geom_point(aes(colour = factor(outcome_name, labels = c(outcome_vars))), size = 3, position=position_dodge(width = 1)) +
+  geom_errorbar(aes(ymin = low_ci, ymax = high_ci), position=position_dodge(width = 1), width=.33) +
+ geom_text(aes(label = format(round(pct_change * 100, 1), nsmall = 1)), position=position_dodge(width = 1), vjust = -1, size = 4) +
+  facet_wrap(~factor(outcome_name, labels = c('cgm any', 'rpm any')), nrow = 1) +
+  geom_hline(yintercept = 0, color = "dark gray", linetype = "dashed") +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) + 
+  theme(strip.placement = "outside", plot.margin = margin(0.75, 0.75, 0.75, 0.75, "cm"),
+        strip.text.y.left = element_text(angle = 0),
+        axis.text.y=element_text(size = 11), axis.title.y=element_text(size = 14, vjust = +4),
+        axis.text.x=element_text(size = 11, angle = 0, vjust = 0.2, hjust = 0.95), axis.title.x=element_text(size = 14, vjust = -1.5),
+        legend.text = element_text(size = 11)) + 
+  labs(y = "Relative change (% of baseline)", 
+       x = "", 
+       colour = "outcome_vars")
+print(plot)
+```
+
+
+
+
