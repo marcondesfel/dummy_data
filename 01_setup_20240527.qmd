@@ -279,8 +279,7 @@ reg_res <- regression_results %>%
 ```{r}
 #| eval: true
 #| echo: false 
-#| label: fig-dummy-models
-#| fig-cap: "Regression models"
+
 
 # Calculate mean of each outcome variable
 mean_outcome <- sapply(outcome_vars, function(outcome_var) {
@@ -302,7 +301,11 @@ reg_res <- reg_res %>%
          low_ci = (estimate - 1.96 * std.error) / baseline,
          high_ci = (estimate + 1.96 * std.error) / baseline)
 
+```
 
+```{r}
+#| label: fig-dummy-models
+#| fig-cap: "Regression models"
 
 # Plot using ggplot2
 plot <- ggplot(reg_res, aes(x = factor(model, labels = c("m1", "m2", "m3")), y = pct_change)) +
