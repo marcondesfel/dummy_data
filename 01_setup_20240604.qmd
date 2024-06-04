@@ -53,6 +53,7 @@ library(stats)
 library(arrow)
 library(tidyverse)
 library(ggsurvey)
+library(lfe)
 
 ```
 
@@ -223,34 +224,50 @@ flat_frequency_table <- bind_rows(frequency_tables, .id = "variable")
 #| eval: true
 #| echo: false 
 
+# Make variables into factors 
+a5$race <- factor(a5$race)
+a5$dual_eligible <- factor(a5$dual_eligible)
+a5$gender <- factor(a5$gender)
+a5$tin <- as.character(a5$tin)
+
 
 # Custom function to perform linear regression for multiple outcome variables and covariates
-perform_regression <- function(outcome_vars, covariates, data, fixed) {
+perform_regression <- function(outcome_vars, covariates, data, fixed = NULL) {
   results <- list()
   
   for (outcome_var in outcome_vars) {
     for (i in seq_along(covariates)) {
-      if (i = 1) {
       covariate_set <- unlist(covariates[1:i])
       
-      formula <- as.formula(paste(outcome_var, "~", paste(covariate_set, collapse = "+")))
-      model[i] <- felm(formula, data = data, cmethod = "cgm2", exactDOF = TRUE)
+      if (!is.null(fixed)) {
+      formula_string <- paste(outcome_var, "~", paste(covariate_set, collapse = "+"), "| tin |  0 | 0")
+      } else {
+        formula_string <- paste(outcome_var, "~", paste(covariate_set, collapse = "+"), "| 0 | 0 | 0")
+      }
       
-      result_name <- paste(outcome_var, "_vs_", paste(covariate_set, collapse = "_and_"), sep = "")
+      # Construct formula
+      formula <- as.formula(formula_string)
       
       
-      result <- broom::tidy(model)
-      result$outcome_name <- outcome_var
+      model <- felm(formula, data = data, cmethod = "cgm2", exactDOF = TRUE) %>%
+        tidy(conf.int = TRUE) %>%
+        filter(term == "race2" | term == "race3") %>%
+        mutate(outcome_name = outcome_var, 
+               mod_name = paste("model",i, sep = ""))
       
-      results[[result_name]] <- result
-    }
+      
+      # Collect garbage
+      gc()
+      
+
+      
+      results[[length(results) + 1]] <- model
     }
   }
   final_results <- bind_rows(results, .id = "model")
   
-  for (outcome_var in outcome_vars) {
-    final_results$model <- gsub(paste0("^", outcome_var, "_vs_"), "y_vs_", final_results$model)
-  }
+  gc()
+
   return(final_results)
 }
 
@@ -261,10 +278,15 @@ age_sex <- c("age", "gender")
 outcome_vars <- c("rpm_any", "cgm_diab_any")
 
 # Vector of covariates
-covariates <- list("dual_eligible", "number_comorbidities", age_sex)
+covariates <- list("race", "dual_eligible", "number_comorbidities", age_sex)
+
+# Fixed effects
+fixed <- c("tin")
 
 # Perform regression for the variables and flatten results 
-regression_results <- perform_regression(outcome_vars, covariates, a5)
+regression_results <- perform_regression(outcome_vars, covariates, data= a5)
+
+regression_results2 <- perform_regression(outcome_vars, covariates, a5, fixed = fixed)
 
 
 # filter only needed coeffs
